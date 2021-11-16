@@ -91,6 +91,8 @@ class SelfAttention(nn.Module):
 
         attn = (q * k.softmax(dim=-1)) * self.scale
 
+        attn = self.drop(attn)
+
         attn = (attn * v).contiguous()
         attn = attn.permute(0, 2, 1, 3).contiguous().view(B_, N, C)
 
