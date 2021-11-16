@@ -68,28 +68,14 @@ class MlpBlock(nn.Module):
         return out
 
 
-class LinearGeneral(nn.Module):
-    def __init__(self, in_dim=(768,), feat_dim=(12, 64)):
-        super(LinearGeneral, self).__init__()
-
-        self.weight = nn.Parameter(torch.randn(*in_dim, *feat_dim))
-        self.bias = nn.Parameter(torch.zeros(*feat_dim))
-
-    def forward(self, x, dims):
-        a = torch.tensordot(x, self.weight, dims=dims) + self.bias
-        return a
-
-
 class SelfAttention(nn.Module):
-    def __init__(self, dim, heads=8, dropout_rate=0.1):
+    def __init__(self, dim, heads=8, dropout_rate=0.1, qkv_bias=True):
         super(SelfAttention, self).__init__()
         self.heads = heads
         self.head_dim = dim // heads
         self.scale = self.head_dim ** 0.5
 
-        self.proj_q = nn.Linear(dim, dim)
-        self.proj_k = nn.Linear(dim, dim)
-        self.proj_v = nn.Linear(dim, dim)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.drop = nn.Dropout(dropout_rate)
         self.n_heads = heads
 
@@ -99,16 +85,16 @@ class SelfAttention(nn.Module):
             self.dropout = None
 
     def forward(self, x):
-        B, N, C = x.shape
-        q, k, v = self.proj_q(x), self.proj_k(x), self.proj_v(x)
+        B_, N, C = x.shape
+        qkv = self.qkv(x).reshape(B_, N, 3, self.heads, C // self.heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
-        H, W, C2 = k.shape
-        attn = (q * k.reshape(-1,N).softmax(dim=0).reshape(H,W,C2)) * self.scale
+        attn = (q * k.softmax(dim=-1)) * self.scale
 
         attn = (attn * v).contiguous()
-        #attn = attn.transpose(1, 2)
+        attn = attn.permute(0, 2, 1, 3).contiguous().view(B_, N, C)
 
-        return attn
+        return attn.view(B_, N, C)
 
 
 class EncoderBlock(nn.Module):
